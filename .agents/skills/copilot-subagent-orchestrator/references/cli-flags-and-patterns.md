@@ -1,4 +1,6 @@
-# `collama` & `ollama-copilot` CLI Reference, SDD Integration, and Subagent Patterns
+# `collama` & `ollama-copilot` CLI Reference, SDD Integration, and Subagent Patterns (`v1.0.0`)
+
+> **Skill Version**: `v1.0.0` (Initial Release / 初版)
 
 ## 1. Environment Probing & SDD Tool Priority (`-CheckEnvironment`)
 

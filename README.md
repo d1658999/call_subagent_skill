@@ -1,4 +1,6 @@
-# Copilot Subagent Orchestrator Skill (`collama` & `ollama-copilot` + SDD Planning)
+# Copilot Subagent Orchestrator Skill (`collama` & `ollama-copilot` + SDD Planning) — `v1.0.0`
+
+> **目前版本**：`v1.0.0`（初版 Initial Release）
 
 讓 Google Antigravity (`agy` CLI / Antigravity IDE) 在接到任務時，先由 **`agy` 當下可用最聰明的 Gemini 模型（如 Pro / 最高階模型）進行嚴謹規劃（優先使用電腦上已安裝的 OpenSpec / Specify 等 SDD 工具；若未安裝則使用 AGY 原生 Plan 功能）**；當 `proposal`、`spec`、`plan (design)`、`tasks` 確定後，再由 `agy` 最聰明的模型動態決定如何指派給 `ollama-copilot`（預設 4 個平行 Subagent）與 `collama`（最多 2 個平行 Subagent）一起平行派工或自動切換可用引擎，並在完成後執行嚴格審查與退回訂正閉環。
 

@@ -1,8 +1,11 @@
 <#
 .SYNOPSIS
-    Orchestrates GitHub Copilot CLI via `collama` and/or `ollama-copilot` with SDD/OpenSpec integration,
+    [v1.0.0] Orchestrates GitHub Copilot CLI via `collama` and/or `ollama-copilot` with SDD/OpenSpec integration,
     engine health probing & auto-failover, parallel subagents (`--fleet` / `task` tool),
     and AGY Supervisor Audit & Correction loops (`-ResumeSessionId` + `-CorrectionFeedback`).
+
+.NOTES
+    Version: 1.0.0 (Initial Release / 初版)
 
 .DESCRIPTION
     1. Environment & SDD Check (`-CheckEnvironment`):
@@ -120,6 +123,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$SkillVersion = "1.0.0"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -178,6 +182,7 @@ function Get-OrchestratorEnvironmentStatus {
     $gitInitialized = (Test-Path (Join-Path (Get-Location).Path ".git"))
 
     return [PSCustomObject]@{
+        SkillVersion                 = $SkillVersion
         PreferredPlanningTool        = $preferredSdd
         GitInitialized               = $gitInitialized
         SDDTools                     = [PSCustomObject]@{

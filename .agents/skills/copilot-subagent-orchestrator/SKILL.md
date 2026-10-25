@@ -1,7 +1,8 @@
 ---
 name: copilot-subagent-orchestrator
+version: 1.0.0
 description: >-
-  End-to-end Spec-Driven multi-agent orchestrator for Antigravity (`agy`).
+  [v1.0.0] End-to-end Spec-Driven multi-agent orchestrator for Antigravity (`agy`).
   When receiving a task, `agy` uses its smartest available Gemini model (Pro / top-tier)
   to perform rigorous planning first (prioritizing installed SDD tools like OpenSpec/Specify,
   or falling back to AGY's native Plan). Once `proposal`, `spec`, `plan`, and `tasks` are
@@ -10,7 +11,9 @@ description: >-
   results, and runs a guided correction loop if any errors are found.
 ---
 
-# Copilot Subagent Orchestrator (`collama` & `ollama-copilot` + SDD Planning)
+# Copilot Subagent Orchestrator (`collama` & `ollama-copilot` + SDD Planning) — `v1.0.0`
+
+> **Version**: `v1.0.0` (Initial Release / 初版)
 
 This skill enables Antigravity (`agy`) to act as the **Lead Architect & Supervisor** using its smartest available Gemini model (e.g., Gemini 4 Argon / Pro tier) to:
 1. **Plan rigorously first** (prioritizing **OpenSpec / SDD** if installed on the machine, otherwise falling back to **AGY's native Plan**).
