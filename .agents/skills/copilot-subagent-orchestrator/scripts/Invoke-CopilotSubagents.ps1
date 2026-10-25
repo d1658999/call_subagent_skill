@@ -175,9 +175,12 @@ function Get-OrchestratorEnvironmentStatus {
         "agy-native-plan"
     }
 
+    $gitInitialized = (Test-Path (Join-Path (Get-Location).Path ".git"))
+
     return [PSCustomObject]@{
-        PreferredPlanningTool = $preferredSdd
-        SDDTools              = [PSCustomObject]@{
+        PreferredPlanningTool        = $preferredSdd
+        GitInitialized               = $gitInitialized
+        SDDTools                     = [PSCustomObject]@{
             openspec    = ($null -ne $openspecCmd)
             openspec_tw = ($null -ne $openspecTwCmd)
             specify     = ($null -ne $specifyCmd)

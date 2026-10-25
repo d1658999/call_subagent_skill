@@ -31,8 +31,9 @@
    - `agy` 最聰明的模型針對回傳結果對照 `spec` 與 `tasks` 進行「工作派遣合規性」與「邏輯與規格正確性」審查。
 4. **Stage 3：退回指導重新訂正（Guided Correction）**
    - 若不符合規格或邏輯有誤，`agy` 透過 `-ResumeSessionId` + `-CorrectionFeedback` 指導 `collama` / `ollama-copilot` 在原 Session 修正並重新驗證。
-5. **Stage 4：複查確認與結案（Sign-Off）**
+5. **Stage 4：複查確認與強制版控結案（Sign-Off & Version Control）**
    - 複查通過後更新 `tasks.md` 狀態並彙整最終成果。
+   - **文件與技能包強制納入 Git 版控**：所有規劃/規格文件（`openspec/`、`proposal.md`、`spec.md`、`design.md`、`tasks.md`、`README.md`）與技能包（`.agents/skills/`）皆須納入 Git 版本控制（若尚未初始化則執行 `git init`），並以清晰的 Commit 紀錄提交，以便未來持續更新、修改與除錯追蹤。
 
 ---
 

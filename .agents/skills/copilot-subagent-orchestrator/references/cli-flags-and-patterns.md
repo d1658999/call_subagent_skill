@@ -87,3 +87,5 @@ Do **NOT** pass `-s` / `--silent` to `ollama-copilot`. Because `ollama-copilot` 
      -CorrectionFeedback "<Detailed explanation of the spec/logic violation, plus instructions to fix and re-verify>"
    ```
 3. **Re-Verification Step**: `agy` checks the resumed session's corrected output to confirm all spec scenarios and tasks pass.
+4. **Version Control Step (Git Tracking)**:
+   - Ensure all planning/SDD artifacts (`openspec/`, `proposal.md`, `spec.md`, `design.md`, `tasks.md`, `README.md`) and skill files (`.agents/skills/`) are tracked in Git (`git init` if not yet initialized) and committed atomically so future iterations and debugging have full version history.

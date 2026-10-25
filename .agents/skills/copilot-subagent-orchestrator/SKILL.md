@@ -35,10 +35,10 @@ Every non-trivial task handled with this skill **MUST** follow this 5-stage work
 
 ```mermaid
 flowchart TD
-    S0["Stage 0: Rigorous Planning (AGY Smartest Model)<br/>1. Check Environment (-CheckEnvironment)<br/>2. Priority: OpenSpec / SDD -> fallback: AGY Native Plan<br/>3. Confirm proposal, spec, plan/design, tasks"] --> S1
+    S0["Stage 0: Rigorous Planning & Git Baseline (AGY Smartest Model)<br/>1. Check Environment (-CheckEnvironment)<br/>2. Priority: OpenSpec / SDD -> fallback: AGY Native Plan<br/>3. Confirm proposal, spec, plan/design, tasks & Track in Git"] --> S1
     S1["Stage 1: Intelligent Dispatch (AGY Smartest Model Decides)<br/>Co-dispatch ollama-copilot (4) + collama (<=2)<br/>or route to whichever engine is available (-SpecContextPath)"] --> S2
     S2["Stage 2: High-Tier Model Audit<br/>Verify Task Dispatch Compliance + Spec/Logic Accuracy"]
-    S2 -->|Pass| S4["Stage 4: Approved & Final Synthesis<br/>(Update tasks.md / OpenSpec status)"]
+    S2 -->|Pass| S4["Stage 4: Approved, Final Synthesis & Git Commit<br/>(Update tasks.md / docs / skill files & Commit to VCS)"]
     S2 -->|Fail / Error Found| S3["Stage 3: Guided Correction Loop<br/>(-ResumeSessionId + -CorrectionFeedback)"]
     S3 --> S2
 ```
@@ -89,9 +89,13 @@ If **any** flaw or spec violation is found in Stage 2:
 1. Extract the session UUID (`Resume copilot --resume=<session-uuid>`) from the failed engine's output.
 2. Call `Invoke-CopilotSubagents.ps1` with `-ResumeSessionId "<session-uuid>"`, `-SpecContextPath "<spec-path>"`, and `-CorrectionFeedback "<detailed flaw + fix instructions>"` so the engine resumes its session and fixes the issue.
 
-### Stage 4: Re-Audit & Sign-Off (複查確認與結案)
+### Stage 4: Re-Audit, Sign-Off & Mandatory Version Control (複查確認與文件/技能包強制納入版控)
 
-Re-audit the corrected output. Once all `spec` requirements and `tasks.md` items pass, mark `tasks.md` items complete (`- [x]`).
+1. Re-audit the corrected output. Once all `spec` requirements and `tasks.md` items pass, mark `tasks.md` items complete (`- [x]`).
+2. **Mandatory Version Control Policy (文件與技能包皆須納入 Git 版控)**:
+   - Every SDD/Planning document (`openspec/`, `proposal.md`, `spec.md`, `design.md`, `tasks.md`, `README.md`) and any workspace Skill package (`.agents/skills/`) **MUST** be tracked in Git version control so future updates, modifications, rollbacks, and debugging have a complete history.
+   - If the workspace is not yet a Git repository (`GitInitialized: false` in `-CheckEnvironment`), run `git init` and ensure `.gitignore` does **NOT** exclude `.agents/skills/` or `openspec/`.
+   - Stage and commit all updated documentation, specs, skill package files, and code changes (`git add` + `git commit`) with a clear, structured commit message before concluding the task.
 
 ---
 
