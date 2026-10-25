@@ -1,116 +1,133 @@
 ---
 name: copilot-subagent-orchestrator
 description: >-
-  Invoke and orchestrate `collama` and `ollama-copilot` (GitHub Copilot CLI wrappers)
-  in parallel from PowerShell or shell to execute tasks and parallel subagents (`--fleet` / `task` tool),
-  with mandatory auditing by AGY's highest-tier model and an automated correction loop.
-  Use this skill whenever the user asks to call, control, or delegate work to `collama`
-  or `ollama-copilot`, or to run parallel subagents via these CLI wrappers.
+  End-to-end Spec-Driven multi-agent orchestrator for Antigravity (`agy`).
+  When receiving a task, `agy` uses its smartest available Gemini model (Pro / top-tier)
+  to perform rigorous planning first (prioritizing installed SDD tools like OpenSpec/Specify,
+  or falling back to AGY's native Plan). Once `proposal`, `spec`, `plan`, and `tasks` are
+  confirmed, `agy`'s smartest model dynamically dispatches work to `ollama-copilot` (default 4
+  subagents) and/or `collama` (max 2 subagents) based on availability and workload, audits
+  results, and runs a guided correction loop if any errors are found.
 ---
 
-# Copilot Subagent Orchestrator (`collama` & `ollama-copilot`)
+# Copilot Subagent Orchestrator (`collama` & `ollama-copilot` + SDD Planning)
 
-This skill enables Antigravity (`agy`) to invoke and control `collama` and `ollama-copilot` in parallel via PowerShell (`pwsh`), enforce engine-specific subagent concurrency limits, and audit their outputs using `agy`'s highest-tier model with a closed-loop correction workflow.
+This skill enables Antigravity (`agy`) to act as the **Lead Architect & Supervisor** using its smartest available Gemini model (e.g., Gemini 4 Argon / Pro tier) to:
+1. **Plan rigorously first** (prioritizing **OpenSpec / SDD** if installed on the machine, otherwise falling back to **AGY's native Plan**).
+2. **Dynamically dispatch** confirmed `proposal`, `spec`, `plan`, and `tasks` to `ollama-copilot` and/or `collama` (co-dispatching in parallel when both are available, or failing over automatically to whichever engine is online).
+3. **Audit & correct** all outputs via a closed-loop review workflow.
 
-## 1. Mandatory Subagent Concurrency Rules
+---
 
-Both `collama` and `ollama-copilot` wrap GitHub Copilot CLI (`copilot`) with custom BYOK providers in PowerShell `$PROFILE` and support spawning parallel background subagents (`--fleet` and the internal `task` / `read_agent` tools). You **MUST** enforce their respective subagent concurrency limits:
+## 1. Engine Subagent Concurrency & Availability Rules
 
-| Engine | Concurrency Limit | Concurrency & Batching Rule |
+| Engine | Concurrency Limit | Availability & Routing Policy |
 | :--- | :--- | :--- |
-| **`collama`** | **At most 2 (`<= 2`)** | **Hard Cap**: Never allow `collama` to run more than **2** concurrent subagents at the same time. If a job has > 2 subtasks, instruct `collama` to batch them in waves of at most 2 parallel subagents (`task` in `mode: "background"`), wait with `read_agent`, then start the next wave. |
-| **`ollama-copilot`** | **Default 4 (Unrestricted)** | **Default 4**: By default, instruct `ollama-copilot` to run up to **4** parallel subagents simultaneously. It has no hard ceiling and may scale higher if explicitly requested by the user. |
+| **`collama`** | **At most 2 (`<= 2`)** | **Hard Cap**: Never run > **2** concurrent subagents. If assigned > 2 subtasks, batch in waves of at most 2 (`task` in `mode: "background"`), wait with `read_agent`, then start the next wave. |
+| **`ollama-copilot`** | **Default 4 (Unrestricted)** | **Default 4**: Runs up to **4** parallel subagents simultaneously by default; no hard upper ceiling. |
+| **`auto` / Dual Dispatch** | **Dynamic (`agy` Decides)** | **Default**: Both engines are available. `agy`'s smartest Gemini model decides whether to **co-dispatch both in parallel** (e.g., 4 subtasks to `ollama-copilot` + 2 subtasks to `collama`) or use whichever engine is reachable/optimal. |
 
 ---
 
-## 2. Mandatory AGY High-Tier Model Review & Correction Loop (最高等模型審查與退回訂正機制)
+## 2. Mandatory 5-Stage End-to-End Workflow
 
-Because `collama` and `ollama-copilot` run fast flash-tier models (`deepseek-v4.1-flash`), **`agy` MUST act as the Lead Supervisor and Auditor using `agy`'s highest-tier model** (either directly in the primary `agy` agent when running on a top-tier/Pro model, or by delegating review to a subagent with `Model: "pro"` / `Model: "inherit"`).
-
-Every orchestration execution **MUST** follow this 4-stage closed-loop workflow:
+Every non-trivial task handled with this skill **MUST** follow this 5-stage workflow driven by `agy`'s smartest available Gemini model (active top-tier primary model or `invoke_subagent` with `Model: "pro"` / `"inherit"`):
 
 ```mermaid
-flowchart LR
-    A["Stage 1: Parallel Dispatch<br/>(collama <=2 / ollama-copilot =4)"] --> B["Stage 2: AGY High-Tier Model Audit<br/>(Check Logic & Task Dispatch)"]
-    B -->|Pass| D["Stage 4: Approved & Final Synthesis"]
-    B -->|Fail / Error Found| C["Stage 3: Guided Correction<br/>(-ResumeSessionId + -CorrectionFeedback)"]
-    C --> B
+flowchart TD
+    S0["Stage 0: Rigorous Planning (AGY Smartest Model)<br/>1. Check Environment (-CheckEnvironment)<br/>2. Priority: OpenSpec / SDD -> fallback: AGY Native Plan<br/>3. Confirm proposal, spec, plan/design, tasks"] --> S1
+    S1["Stage 1: Intelligent Dispatch (AGY Smartest Model Decides)<br/>Co-dispatch ollama-copilot (4) + collama (<=2)<br/>or route to whichever engine is available (-SpecContextPath)"] --> S2
+    S2["Stage 2: High-Tier Model Audit<br/>Verify Task Dispatch Compliance + Spec/Logic Accuracy"]
+    S2 -->|Pass| S4["Stage 4: Approved & Final Synthesis<br/>(Update tasks.md / OpenSpec status)"]
+    S2 -->|Fail / Error Found| S3["Stage 3: Guided Correction Loop<br/>(-ResumeSessionId + -CorrectionFeedback)"]
+    S3 --> S2
 ```
 
-### Stage 1: Parallel Dispatch (平行工作派遣)
-- `agy` can invoke `collama` and `ollama-copilot` simultaneously in parallel `run_command` tool calls (or individually) via [Invoke-CopilotSubagents.ps1](./scripts/Invoke-CopilotSubagents.ps1).
+### Stage 0: Environment Probe & Rigorous SDD / Plan Generation (最聰明模型嚴謹規劃)
 
-### Stage 2: High-Tier Model Audit (AGY 最高等模型邏輯與派遣審查)
-After `collama` and/or `ollama-copilot` return their outputs, `agy` **MUST** critically audit the results against two mandatory checklists before presenting them as done:
-1. **Task Dispatch Compliance (工作派遣合規性審查)**:
-   - Did `collama` strictly obey the `<= 2` concurrent background subagent cap per wave?
-   - Did `ollama-copilot` dispatch its expected parallel background subagents (default `4`)?
-   - Were **all** assigned subtasks actually executed and answered without silent skips or truncation?
-2. **Logical & Content Accuracy (邏輯與內容正確性審查)**:
-   - Are all calculations, code changes, file inspections, and reasoning steps logically sound and free of contradictions or hallucinations?
-   - Does the output satisfy every explicit and implicit constraint of the task?
-   - If files were created or edited, inspect the actual files on disk to verify correctness.
+When `agy` receives a task, **before** dispatching work to `collama` or `ollama-copilot`:
+1. **Probe SDD Tools & Engine Availability**:
+   Run [Invoke-CopilotSubagents.ps1](./scripts/Invoke-CopilotSubagents.ps1) with `-CheckEnvironment`:
+   ```powershell
+   pwsh -File "c:\Users\d1658\Documents\project\call_subagent_skill\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1" -CheckEnvironment
+   ```
+2. **Author `proposal`, `spec`, `plan` (`design`), and `tasks` Using the Highest-Priority Planning Tool**:
+   - **Priority 1 — OpenSpec / SDD Installed (`PreferredPlanningTool: "openspec"` / `"openspec-tw"` / `"specify"`)**:
+     - If `openspec` is installed and the workspace is not yet initialized, run `openspec init --tools none` (if appropriate for the project) and `openspec new change <change-name>`.
+     - Using `agy`'s smartest Gemini model, author the 4 core SDD artifacts under `openspec/changes/<change-name>/` (or a dedicated spec folder):
+       1. `proposal.md` — Problem statement, scope, goals, and non-goals.
+       2. `specs/<domain>/spec.md` — Concrete requirements, scenarios (`WHEN/THEN`), and invariants.
+       3. `design.md` (`plan`) — Architecture, implementation approach, and verification strategy.
+       4. `tasks.md` — Granular checklist partitioned into independent subtasks ready for `ollama-copilot` / `collama` subagents.
+   - **Priority 2 — Fallback to AGY Native Plan (`PreferredPlanningTool: "agy-native-plan"`)**:
+     - If no SDD CLI is installed, use AGY's built-in Plan capability (writing an implementation plan markdown file/artifact) containing the exact same 4 sections: **Proposal**, **Spec**, **Plan**, and **Tasks**.
+
+### Stage 1: Dynamic Engine Selection & Intelligent Dispatch (由 AGY 最聰明模型決定派工策略)
+
+Once `plan`, `proposal`, `spec`, and `tasks` are confirmed, `agy`'s smartest Gemini model decides how to assign the tasks in `tasks.md` across `ollama-copilot` and `collama`:
+- **Strategy A — Dual-Engine Co-Dispatch (預設兩者皆可用時，可同時平行派工)**:
+  - Assign wider/multi-part task groups (e.g., 3–4+ parallel subtasks) to **`ollama-copilot`** (`-Engine ollama-copilot -MaxSubagents 4`).
+  - Simultaneously assign focused 1–2 subtask groups (e.g., core logic, verification, or 2-part modules) to **`collama`** (`-Engine collama -MaxSubagents 2`).
+- **Strategy B — Single-Engine or Auto-Failover (看哪個可以用就用誰)**:
+  - If only one engine is reachable (reported by `-CheckEnvironment`), or if the task is small enough for a single engine, route to the available engine (or pass `-Engine auto`, which automatically selects a healthy engine and fails over if one errors out).
+- Always pass `-SpecContextPath "<path-to-openspec-change-or-plan>"` so the confirmed `proposal`, `spec`, `design/plan`, and `tasks` are injected directly into the subagents' prompt context.
+
+### Stage 2: High-Tier Model Audit (AGY 最聰明模型審查)
+
+After `ollama-copilot` and/or `collama` finish, `agy`'s smartest model audits the outputs against the confirmed `spec` and `tasks`:
+1. **Task Dispatch Compliance (工作派遣合規性)**:
+   - Did `collama` strictly obey `<= 2` concurrent subagents per wave?
+   - Did `ollama-copilot` run its expected parallel subagents?
+   - Were all assigned items from `tasks.md` completed?
+2. **Logical & Spec Accuracy (邏輯與規格正確性)**:
+   - Do the outputs and any modified files strictly satisfy every requirement and scenario in `spec.md` / `design.md`?
+   - Are there any logical flaws, edge-case bugs, or hallucinations?
 
 ### Stage 3: Guided Correction Loop (退回重新訂正與檢查)
-If **any** logical flaw, content error, constraint violation, or incomplete subtask dispatch is found during Stage 2:
-1. **Do NOT accept the flawed output.**
-2. Extract the session UUID from the footer of the failed engine's output (`Resume copilot --resume=<session-uuid>`).
-3. Formulate specific, actionable supervisor guidance in `-CorrectionFeedback` explaining:
-   - **What is wrong**: The exact logical error, wrong value, or missing subtask.
-   - **How to fix it**: Clear instructions on how to recalculate, re-verify, or re-run the affected subtask(s).
-4. Re-invoke `Invoke-CopilotSubagents.ps1` with `-Engine <collama|ollama-copilot> -ResumeSessionId "<session-uuid>" -CorrectionFeedback "<guidance>"` so the engine resumes its session, fixes the mistake, and re-verifies.
 
-### Stage 4: Re-Audit & Approval (複查確認)
-- `agy` audits the corrected output from Stage 3 again. Repeat Stage 3 -> Stage 4 (up to 3 correction rounds) until the output passes all logical and dispatch checks.
+If **any** flaw or spec violation is found in Stage 2:
+1. Extract the session UUID (`Resume copilot --resume=<session-uuid>`) from the failed engine's output.
+2. Call `Invoke-CopilotSubagents.ps1` with `-ResumeSessionId "<session-uuid>"`, `-SpecContextPath "<spec-path>"`, and `-CorrectionFeedback "<detailed flaw + fix instructions>"` so the engine resumes its session and fixes the issue.
+
+### Stage 4: Re-Audit & Sign-Off (複查確認與結案)
+
+Re-audit the corrected output. Once all `spec` requirements and `tasks.md` items pass, mark `tasks.md` items complete (`- [x]`).
 
 ---
 
-## 3. Invoking via Helper Script (Recommended)
+## 3. Command Reference (`Invoke-CopilotSubagents.ps1`)
 
-Use [Invoke-CopilotSubagents.ps1](./scripts/Invoke-CopilotSubagents.ps1) (also installed globally at `$HOME\.gemini\config\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1`).
-
-### A. Initial Parallel Dispatch (`collama` + `ollama-copilot`)
-
-**1. Calling `collama` (Hard Cap: Max 2 Parallel Subagents):**
+### 1. Check SDD Tools & Engine Availability
 ```powershell
-pwsh -File "c:\Users\d1658\Documents\project\call_subagent_skill\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1" `
-  -Engine collama `
-  -MaxSubagents 2 `
-  -WorkingDirectory "<target-repo-path>" `
-  -Prompt "Coordinate the subtasks and synthesize the findings." `
-  -Tasks "Subtask 1: ...", "Subtask 2: ..."
+pwsh -File "c:\Users\d1658\Documents\project\call_subagent_skill\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1" -CheckEnvironment
 ```
 
-**2. Calling `ollama-copilot` (Default: 4 Parallel Subagents):**
+### 2. Co-Dispatch Confirmed OpenSpec / Plan Tasks to `ollama-copilot` & `collama`
 ```powershell
+# Engine 1: ollama-copilot (4 parallel subagents)
 pwsh -File "c:\Users\d1658\Documents\project\call_subagent_skill\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1" `
   -Engine ollama-copilot `
   -MaxSubagents 4 `
-  -WorkingDirectory "<target-repo-path>" `
-  -Prompt "Run all subtasks in parallel and return a consolidated report." `
-  -Tasks "Subtask 1: ...", "Subtask 2: ...", "Subtask 3: ...", "Subtask 4: ..."
+  -SpecContextPath ".\openspec\changes\<change-id>" `
+  -Prompt "Execute Tasks Group A according to the attached OpenSpec." `
+  -Tasks "Task 1.1: ...", "Task 1.2: ...", "Task 1.3: ...", "Task 1.4: ..."
+
+# Engine 2: collama (Max 2 parallel subagents)
+pwsh -File "c:\Users\d1658\Documents\project\call_subagent_skill\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1" `
+  -Engine collama `
+  -MaxSubagents 2 `
+  -SpecContextPath ".\openspec\changes\<change-id>" `
+  -Prompt "Execute Tasks Group B according to the attached OpenSpec." `
+  -Tasks "Task 2.1: ...", "Task 2.2: ..."
 ```
 
-### B. Guided Correction Call (When AGY Audit Detects an Error)
-
+### 3. Guided Correction Call (`-ResumeSessionId` + `-CorrectionFeedback`)
 ```powershell
 pwsh -File "c:\Users\d1658\Documents\project\call_subagent_skill\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1" `
   -Engine <collama|ollama-copilot> `
-  -ResumeSessionId "<session-uuid-from-previous-run>" `
-  -CorrectionFeedback "Audit Failed: (1) In Subtask 2, your calculation/logic violated constraint X because Y. (2) Re-dispatch a subagent to fix Subtask 2, verify the result, and output the corrected table."
+  -ResumeSessionId "<session-uuid>" `
+  -SpecContextPath ".\openspec\changes\<change-id>" `
+  -CorrectionFeedback "AGY Spec Audit Failed: Task 1.2 violated Requirement X in spec.md. Re-dispatch a subagent to fix and verify."
 ```
 
----
-
-## 4. Direct PowerShell Invocation (Without Wrapper Script)
-
-If calling `collama` or `ollama-copilot` directly in PowerShell:
-1. Ensure `$PROFILE` is loaded: `if (-not (Get-Command collama -ErrorAction SilentlyContinue)) { . $PROFILE }`
-2. **Initial Dispatch**:
-   - `collama --fleet --no-ask-user -p "STRICT RULE: Launch AT MOST 2 parallel subagents at a time (wave batch if >2). Task: ..."`
-   - `ollama-copilot --fleet --no-ask-user -p "Use up to 4 parallel subagents simultaneously. Task: ..."`
-3. **Correction via Session Resume**:
-   - `collama --fleet --no-ask-user --resume=<session-uuid> -p "[AGY SUPERVISOR CORRECTION]: <specific error and fix instructions>"`
-   - `ollama-copilot --fleet --no-ask-user --resume=<session-uuid> -p "[AGY SUPERVISOR CORRECTION]: <specific error and fix instructions>"`
-
-> **Important**: Never pass `-s` (`--silent`) to `ollama-copilot`, as `--autopilot`'s final `task_complete` call causes `-s` to drop the synthesis output. See [cli-flags-and-patterns.md](./references/cli-flags-and-patterns.md) for details.
+> See [cli-flags-and-patterns.md](./references/cli-flags-and-patterns.md) for detailed OpenSpec CLI commands, failover behavior, and Copilot CLI subagent flags.
