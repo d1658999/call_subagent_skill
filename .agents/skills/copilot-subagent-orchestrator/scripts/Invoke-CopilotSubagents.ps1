@@ -1,32 +1,32 @@
 <#
 .SYNOPSIS
-    [v1.0.0] Orchestrates GitHub Copilot CLI via `collama` and/or `ollama-copilot` with SDD/OpenSpec integration,
-    engine health probing & auto-failover, parallel subagents (`--fleet` / `task` tool),
+    [v1.1.0] Orchestrates GitHub Copilot CLI via `collama`, `ollama-copilot`, and/or `ollama-copilot_2`
+    with SDD/OpenSpec integration, engine health probing & auto-failover, parallel subagents (`--fleet` / `task` tool),
     and AGY Supervisor Audit & Correction loops (`-ResumeSessionId` + `-CorrectionFeedback`).
-
-.NOTES
-    Version: 1.0.0 (Initial Release / 初版)
 
 .DESCRIPTION
     1. Environment & SDD Check (`-CheckEnvironment`):
        Detects installed SDD tools (`openspec`, `openspec-tw`, `specify`) and probes availability of
-       both `collama` and `ollama-copilot` endpoints.
+       `collama`, `ollama-copilot`, and `ollama-copilot_2` endpoints.
     2. Spec-Driven Context Injection (`-SpecContextPath`):
        Reads confirmed `proposal.md`, `design.md`, `specs/`, and `tasks.md` (from OpenSpec or AGY Plan)
        and injects them into the orchestration prompt.
     3. Engine Concurrency & Auto-Failover:
-       - `collama`: Hard cap of at most 2 concurrent subagents (clamped automatically if > 2 is requested).
+       - `collama`: Hard cap of at most 1 concurrent subagent (to prevent hitting TPM/RPM rate limits).
        - `ollama-copilot`: Default of 4 concurrent subagents (customizable, unrestricted ceiling).
-       - `auto`: Automatically picks an available engine (preferring `ollama-copilot` for >2 subtasks and `collama` for <=2 subtasks),
-         and automatically fails over to the other engine if one endpoint is unreachable (unless `-DisableAutoFallback` is set).
+       - `ollama-copilot_2`: Default of 4 concurrent subagents (customizable, unrestricted ceiling, identical to ollama-copilot).
+       - `auto`: Automatically picks an available engine and fails over if one endpoint is unreachable (unless `-DisableAutoFallback` is set).
     4. Supervisor Review & Correction (`-ResumeSessionId` + `-CorrectionFeedback`):
        Resumes a previous session with AGY's top-tier model audit feedback to guide corrections.
 
+.NOTES
+    Version: 1.1.0 (Added ollama-copilot_2 and reduced collama concurrency to 1 for TPM/RPM safety)
+
 .PARAMETER Engine
-    Which Copilot CLI wrapper to use: 'auto', 'collama', or 'ollama-copilot'. Default: 'auto'.
+    Which Copilot CLI wrapper to use: 'auto', 'collama', 'ollama-copilot', or 'ollama-copilot_2'. Default: 'auto'.
 
 .PARAMETER CheckEnvironment
-    If set, checks SDD tools (`openspec`, `openspec-tw`, `specify`) and probes `collama` & `ollama-copilot` availability, then exits.
+    If set, checks SDD tools (`openspec`, `openspec-tw`, `specify`) and probes `collama`, `ollama-copilot`, and `ollama-copilot_2` availability, then exits.
 
 .PARAMETER SpecContextPath
     Optional path to an OpenSpec change directory (e.g. `openspec/changes/<id>`) or a Plan/Spec markdown file
@@ -44,8 +44,8 @@
 
 .PARAMETER MaxSubagents
     Maximum number of subagents to run in parallel at any one time (0 = engine default).
-    - Resolves to 2 for 'collama' when 0, and is strictly clamped to <= 2.
-    - Resolves to 4 for 'ollama-copilot' when 0 (can be set to any positive integer).
+    - Resolves to 1 for 'collama' when 0, and is strictly clamped to <= 1 (TPM/RPM protection).
+    - Resolves to 4 for 'ollama-copilot' and 'ollama-copilot_2' when 0 (can be set to any positive integer).
 
 .PARAMETER SubagentType
     Preferred subagent type for Copilot CLI's `task` tool (e.g., 'general-purpose', 'explore', 'task', 'research', 'code-review', 'security-review').
@@ -64,7 +64,7 @@
     If set, disables automatic failover to the alternate engine when the selected engine's endpoint is unreachable or fails.
 
 .PARAMETER AdditionalArgs
-    Any extra CLI flags to pass through to `collama` / `ollama-copilot`.
+    Any extra CLI flags to pass through to `collama` / `ollama-copilot` / `ollama-copilot_2`.
 
 .PARAMETER RemainingTasks
     Captures remaining unbound arguments when invoked via `pwsh -File` and merges them into `-Tasks`.
@@ -73,12 +73,12 @@
     pwsh -File .\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1 -CheckEnvironment
 
 .EXAMPLE
-    pwsh -File .\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1 -Engine collama -SpecContextPath ".\openspec\changes\my-feature" -Tasks "Implement module A", "Implement module B"
+    pwsh -File .\.agents\skills\copilot-subagent-orchestrator\scripts\Invoke-CopilotSubagents.ps1 -Engine ollama-copilot_2 -Tasks "Task 1", "Task 2"
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet("auto", "collama", "ollama-copilot")]
+    [ValidateSet("auto", "collama", "ollama-copilot", "ollama-copilot_2")]
     [string]$Engine = "auto",
 
     [Parameter(Mandatory = $false)]
@@ -123,12 +123,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$SkillVersion = "1.0.0"
+$SkillVersion = "1.1.0"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-# Ensure PowerShell $PROFILE is loaded so `collama` and `ollama-copilot` functions are available
-if ((-not (Get-Command "collama" -ErrorAction SilentlyContinue)) -or (-not (Get-Command "ollama-copilot" -ErrorAction SilentlyContinue))) {
+# Ensure PowerShell $PROFILE is loaded so `collama`, `ollama-copilot`, and `ollama-copilot_2` functions are available
+$knownEngines = @("collama", "ollama-copilot", "ollama-copilot_2")
+$missingAny = $false
+foreach ($eng in $knownEngines) {
+    if (-not (Get-Command $eng -ErrorAction SilentlyContinue)) {
+        $missingAny = $true
+        break
+    }
+}
+if ($missingAny) {
     if ($PROFILE -and (Test-Path $PROFILE)) {
         . $PROFILE
     }
@@ -165,9 +173,11 @@ function Get-OrchestratorEnvironmentStatus {
 
     $collamaFn = Get-Command "collama" -ErrorAction SilentlyContinue
     $ollamaCopilotFn = Get-Command "ollama-copilot" -ErrorAction SilentlyContinue
+    $ollamaCopilot2Fn = Get-Command "ollama-copilot_2" -ErrorAction SilentlyContinue
 
     $collamaReachable = ($null -ne $collamaFn) -and (Test-EndpointReachable -Uri "https://llm-share.duotify.com/v1/models" -TimeoutSec 5)
     $ollamaReachable = ($null -ne $ollamaCopilotFn) -and (Test-EndpointReachable -Uri "http://localhost:11434/v1/models" -TimeoutSec 3)
+    $ollama2Reachable = ($null -ne $ollamaCopilot2Fn) -and (Test-EndpointReachable -Uri "http://localhost:11434/v1/models" -TimeoutSec 3)
 
     $preferredSdd = if ($null -ne $openspecCmd) {
         "openspec"
@@ -192,14 +202,19 @@ function Get-OrchestratorEnvironmentStatus {
         }
         WorkspaceOpenSpecInitialized = (Test-Path (Join-Path (Get-Location).Path "openspec"))
         Engines               = [PSCustomObject]@{
-            collama        = [PSCustomObject]@{
+            collama          = [PSCustomObject]@{
                 Defined            = ($null -ne $collamaFn)
                 Reachable          = $collamaReachable
-                MaxParallelAgents  = 2
+                MaxParallelAgents  = 1
             }
-            ollama_copilot = [PSCustomObject]@{
+            ollama_copilot   = [PSCustomObject]@{
                 Defined            = ($null -ne $ollamaCopilotFn)
                 Reachable          = $ollamaReachable
+                DefaultParallelAgents = 4
+            }
+            ollama_copilot_2 = [PSCustomObject]@{
+                Defined            = ($null -ne $ollamaCopilot2Fn)
+                Reachable          = $ollama2Reachable
                 DefaultParallelAgents = 4
             }
         }
@@ -234,28 +249,43 @@ $envStatus = Get-OrchestratorEnvironmentStatus
 $selectedEngine = $Engine
 
 if ($selectedEngine -eq "auto") {
-    if ($envStatus.Engines.ollama_copilot.Reachable -and $envStatus.Engines.collama.Reachable) {
-        if ($allTasks.Count -gt 2 -or $MaxSubagents -gt 2) {
+    $availablePool = [System.Collections.Generic.List[string]]::new()
+    if ($envStatus.Engines.ollama_copilot.Reachable) { [void]$availablePool.Add("ollama-copilot") }
+    if ($envStatus.Engines.ollama_copilot_2.Reachable) { [void]$availablePool.Add("ollama-copilot_2") }
+    if ($envStatus.Engines.collama.Reachable) { [void]$availablePool.Add("collama") }
+
+    if ($availablePool.Count -eq 0) {
+        throw "None of the engines ('ollama-copilot', 'ollama-copilot_2', 'collama') are currently reachable."
+    }
+
+    if ($allTasks.Count -gt 1 -or $MaxSubagents -gt 1) {
+        if ($availablePool.Contains("ollama-copilot")) {
             $selectedEngine = "ollama-copilot"
+        } elseif ($availablePool.Contains("ollama-copilot_2")) {
+            $selectedEngine = "ollama-copilot_2"
         } else {
-            $selectedEngine = "ollama-copilot"
+            $selectedEngine = "collama"
         }
-    } elseif ($envStatus.Engines.ollama_copilot.Reachable) {
-        $selectedEngine = "ollama-copilot"
-    } elseif ($envStatus.Engines.collama.Reachable) {
-        $selectedEngine = "collama"
     } else {
-        throw "Neither 'ollama-copilot' nor 'collama' endpoints are currently reachable."
+        $selectedEngine = $availablePool[0]
     }
     Write-Host "[Auto-Engine] Selected '$selectedEngine' based on endpoint availability and workload." -ForegroundColor DarkCyan
 } else {
-    $isSelectedReachable = if ($selectedEngine -eq "collama") { $envStatus.Engines.collama.Reachable } else { $envStatus.Engines.ollama_copilot.Reachable }
+    $engineKey = $selectedEngine -replace '-', '_'
+    $isSelectedReachable = $envStatus.Engines.$engineKey.Reachable
     if (-not $isSelectedReachable -and (-not $DisableAutoFallback)) {
-        $altEngine = if ($selectedEngine -eq "collama") { "ollama-copilot" } else { "collama" }
-        $isAltReachable = if ($altEngine -eq "collama") { $envStatus.Engines.collama.Reachable } else { $envStatus.Engines.ollama_copilot.Reachable }
-        if ($isAltReachable) {
-            Write-Warning "[$selectedEngine] Endpoint appears unreachable. Auto-failing over to reachable engine '$altEngine'."
-            $selectedEngine = $altEngine
+        $candidateFallbacks = @("ollama-copilot", "ollama-copilot_2", "collama") | Where-Object { $_ -ne $selectedEngine }
+        $foundFallback = $null
+        foreach ($cand in $candidateFallbacks) {
+            $candKey = $cand -replace '-', '_'
+            if ($envStatus.Engines.$candKey.Reachable) {
+                $foundFallback = $cand
+                break
+            }
+        }
+        if ($null -ne $foundFallback) {
+            Write-Warning "[$selectedEngine] Endpoint appears unreachable. Auto-failing over to reachable engine '$foundFallback'."
+            $selectedEngine = $foundFallback
         }
     }
 }
@@ -264,13 +294,14 @@ function Get-EffectiveMaxSubagents {
     param([string]$TargetEngine, [int]$RequestedMax)
     if ($TargetEngine -eq "collama") {
         if ($RequestedMax -le 0) {
-            return 2
-        } elseif ($RequestedMax -gt 2) {
-            Write-Warning "[collama] MaxSubagents requested ($RequestedMax) exceeds collama's hard limit of 2. Clamping MaxSubagents to 2."
-            return 2
+            return 1
+        } elseif ($RequestedMax -gt 1) {
+            Write-Warning "[collama] MaxSubagents requested ($RequestedMax) exceeds collama's hard limit of 1 (TPM/RPM protection). Clamping MaxSubagents to 1."
+            return 1
         }
         return $RequestedMax
     } else {
+        # ollama-copilot and ollama-copilot_2 default to 4 subagents, unrestricted
         if ($RequestedMax -le 0) {
             return 4
         }
@@ -307,10 +338,10 @@ function Build-OrchestrationPrompt {
 
     [void]$promptBuilder.AppendLine("[SUBAGENT ORCHESTRATION INSTRUCTIONS]")
     if ($TargetEngine -eq "collama") {
-        [void]$promptBuilder.AppendLine("- CONCURRENCY LIMIT (STRICT): You are running under 'collama'. You MUST launch AT MOST $EffectiveMax parallel subagents (`task` tool in `mode: `"background`"`) at the same time.")
-        [void]$promptBuilder.AppendLine("- BATCHING RULE: If there are more than $EffectiveMax subtasks, execute them in batches of at most $EffectiveMax concurrent subagents. Wait for the active batch to finish using `read_agent` before launching the next batch.")
+        [void]$promptBuilder.AppendLine("- CONCURRENCY LIMIT (STRICT): You are running under 'collama'. You MUST launch AT MOST $EffectiveMax parallel subagent (`task` tool in `mode: `"background`"`) at the same time to strictly prevent TPM/RPM rate limits.")
+        [void]$promptBuilder.AppendLine("- BATCHING RULE: If there are more than $EffectiveMax subtasks, execute them in serial batches of at most 1 concurrent subagent. Wait for each subagent to finish using `read_agent` before launching the next one.")
     } else {
-        [void]$promptBuilder.AppendLine("- CONCURRENCY RULE: You are running under 'ollama-copilot'. You can launch up to $EffectiveMax parallel subagents (`task` tool in `mode: `"background`"`) simultaneously in a single turn.")
+        [void]$promptBuilder.AppendLine("- CONCURRENCY RULE: You are running under '$TargetEngine'. You can launch up to $EffectiveMax parallel subagents (`task` tool in `mode: `"background`"`) simultaneously in a single turn.")
         [void]$promptBuilder.AppendLine("- BATCHING RULE: If there are more than $EffectiveMax subtasks, run up to $EffectiveMax concurrent subagents per batch, collect results with `read_agent`, and continue until all subtasks are complete.")
     }
     [void]$promptBuilder.AppendLine("- PREFERRED SUBAGENT TYPE: Use `agent_type: `"$SubagentType`"` when calling the `task` tool unless a more specialized agent is required.")
@@ -390,7 +421,6 @@ function Invoke-TargetEngine {
     Write-Host "=== [$modeLabel] Invoking $TargetEngine (MaxSubagents: $effectiveMax, Subtasks: $($allTasks.Count), Fleet: $(-not $NoFleet)$specLabel$resumeLabel) ===" -ForegroundColor Cyan
 
     & $TargetEngine @cliArgs
-    return $LASTEXITCODE
 }
 
 # Save and restore environment variables around invocation
@@ -409,14 +439,26 @@ foreach ($key in $envKeysToPreserve) {
 }
 
 try {
-    $exitCode = Invoke-TargetEngine -TargetEngine $selectedEngine
-    if ($null -ne $exitCode -and $exitCode -ne 0) {
+    Invoke-TargetEngine -TargetEngine $selectedEngine
+    $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+    if ($exitCode -ne 0) {
         if (-not $DisableAutoFallback -and [string]::IsNullOrWhiteSpace($ResumeSessionId)) {
-            $fallbackEngine = if ($selectedEngine -eq "collama") { "ollama-copilot" } else { "collama" }
+            $fallbackEngine = if ($selectedEngine -eq "collama") {
+                if ($envStatus.Engines.ollama_copilot.Reachable) { "ollama-copilot" } else { "ollama-copilot_2" }
+            } else {
+                if ($selectedEngine -eq "ollama-copilot" -and $envStatus.Engines.ollama_copilot_2.Reachable) {
+                    "ollama-copilot_2"
+                } elseif ($envStatus.Engines.ollama_copilot.Reachable) {
+                    "ollama-copilot"
+                } else {
+                    "collama"
+                }
+            }
             Write-Warning "[$selectedEngine] exited with code $exitCode. Attempting automatic failover to '$fallbackEngine'..."
-            $exitCode = Invoke-TargetEngine -TargetEngine $fallbackEngine
+            Invoke-TargetEngine -TargetEngine $fallbackEngine
+            $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
         }
-        if ($null -ne $exitCode -and $exitCode -ne 0) {
+        if ($exitCode -ne 0) {
             exit $exitCode
         }
     }
